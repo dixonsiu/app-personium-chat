@@ -30,7 +30,7 @@
 }
 
 #console {
-  visibility: hidden;
+ // visibility: hidden;
 }
 
 
@@ -121,8 +121,11 @@ $(function() {
     if (ev && ev.data) {
       c.out('msg:' + ev.data, 'green');
       var res = JSON.parse(ev.data);
-      if (res.response == 'success' && res.expires_in) {
+      if (res.Response == 'AccessToken' && res.Result == 'Success' ) {
         c.onTokenValid(res);
+      }
+      if (res.Response == 'Subscribe' && res.Result == 'Success') {
+        c.onSubscriptionSuccess(res);
       }
       if (res.Type) {
         c.onEventReceived(res);
@@ -142,18 +145,31 @@ $(function() {
 
   // WS Auth Functions
   c.sendAccessToken = function() {
-    c.sendMessage({access_token: c.getTokensFor(c.yourUrl).access_token});
+    c.sendMessage({AccessToken: c.getTokensFor(c.yourUrl).access_token});
   };
   c.onTokenValid = function(res){
      c.subscribe();
+  };
+  c.onSubscriptionSuccess = function() {
+    c.checkState();
+  };
+  c.checkState = function() {
+    c.sendMessage({State: 'All'});
   };
   c.onEventReceived = function(res){
       c.outEvent(res);
   };
   c.subscribe = function() {
-    c.sendMessage({subscribe: {Type: "chat", Object:"*"}});
+    c.sendMessage({Subscribe: {Type: "chat", Object:"*"}});
   };
   c.sendEvent = function(cellUrl, ev) {
+    var d = new $.Deferred();
+    c.out("posting event:" + JSON.stringify(ev));
+    c.sendMessage(ev);
+    return d.promise();
+ 
+  };
+  c.sendEventViaRest = function(cellUrl, ev) {
     var d = new $.Deferred();
     c.out("posting event:" + JSON.stringify(ev));
     var accessToken = c.getTokensFor(cellUrl).access_token;
@@ -201,7 +217,7 @@ $(function() {
     c.visit(url);
   };
   c.outEvent = function(ev) {
-    var date = new Date();
+    var date = new Date(ev.Timestamp);
     var dateStr = ('0' + date.getHours()).slice(-2) + ':' + ('0' + date.getMinutes()).slice(-2) 
     c.getProfile(ev.Subject).then(function(prof){
       var html = '<li class="list-group-item"><div class="media"><img class="mr-3 rounded" width="40" src="'+ prof.Image
@@ -268,6 +284,18 @@ $(function() {
             refresh_token: refreshToken
         },
         headers: {'Accept':'application/json'}
+    }).then(function(d) {
+      return $.ajax({
+        type: "POST",
+        url: targetCellUrl + '__token',
+        processData: true,
+        dataType: 'json',
+        data: {
+            grant_type: "urn:ietf:params:oauth:grant-type:saml2-bearer",
+            assertion: d.access_token
+        },
+        headers: {'Accept':'application/json'}
+      });
     }).then(function(data) {
         d.resolve(data);
     }).catch(function(){
@@ -309,7 +337,7 @@ $(function() {
       dataType: 'json',
       headers: {'Accept':'application/json', 'Authorization': "Bearer " + c.getTokensFor(subj).access_token}
     }).then(function(data){
-      data.d.results.forEach(function(extCell){
+      data.d.results.forEach(function(extCell) {
         c.showExtCell(extCell.Url);
       });
       c.out("ext:"+data);
@@ -343,17 +371,18 @@ $(function() {
     });
   };
   c.chat = function(){
-    var ev = {Type:"chat", Object: $('#inputtext').val(), Info:""};
-    c.sendEvent(c.yourUrl, ev);
+    var ev = {Type:"chat", Object: $('#inputtext').val(), Info:"", RequestKey: "chat"};
+    c.sendEvent(c.yourUrl, {Event: ev});
     $('#inputtext').val('');
   };
   c.visit = function(extCell) {
     c.yourUrl = extCell;
     c.showRoom(extCell);
     c.getVisitingAccessToken(c.myUrl, c.yourUrl, c.getTokensFor(c.myUrl).refresh_token).then(function(res){
+      c.out(JSON.stringify(res), 'white');
       c.setTokensFor(c.yourUrl, res);
+      c.connect();
     });
-    c.connect();
     
   };
 });
